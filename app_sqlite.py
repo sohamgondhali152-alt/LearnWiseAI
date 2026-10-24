@@ -16,8 +16,8 @@ st.set_page_config(
     layout="wide"
 )
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "llama3.2"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "openai/gpt-oss-20b"
 
 # ---------------- SQLITE DATABASE ----------------
 
@@ -130,33 +130,46 @@ for key, value in defaults.items():
 
 def ask_ollama(prompt, max_tokens=1200):
     try:
+        api_key = st.secrets["GROQ_API_KEY"]
+
         response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "num_predict": max_tokens,
-                    "temperature": 0.2
-                }
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
             },
-            timeout=(10, 600)
+            json={
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": max_tokens
+            },
+            timeout=(15, 120)
         )
 
         response.raise_for_status()
-        return response.json().get("response", "").strip()
+        data = response.json()
 
-    except requests.exceptions.ConnectionError:
-        return "Ollama connect होत नाही. Ollama चालू आहे का ते तपासा."
+        return data["choices"][0]["message"]["content"].strip()
+
+    except KeyError as error:
+        if "GROQ_API_KEY" in str(error):
+            return "GROQ_API_KEY Streamlit Secrets मध्ये सेट केलेली नाही."
+        return "Groq कडून योग्य response मिळाला नाही."
+
     except requests.exceptions.Timeout:
         return "AI ला वेळ लागत आहे. पुन्हा प्रयत्न करा."
+
+    except requests.exceptions.HTTPError as error:
+        return f"Groq API Error: {error.response.status_code} - {error.response.text[:500]}"
+
     except requests.exceptions.RequestException as error:
-        return f"Request Error: {error}"
-    except ValueError:
-        return "Ollama कडून योग्य response मिळाला नाही."
+        return f"Network Error: {error}"
 
-
+    except (ValueError, IndexError, TypeError):
+        return "Groq कडून योग्य response मिळाला नाही."
 
 def get_course_context():
     text = st.session_state.get("course_text", "").strip()
